@@ -1,0 +1,538 @@
+# Handover readiness checks. Each check maps to a scorecard area.
+# result: found (1.0) / partial (0.5) / missing (0.0), then scaled to 0–5 for the area.
+
+areas:
+  ownership:
+    label: Ownership & people
+    weight: 0.15
+    p0: true
+    score_5: Named owner, backup, on-call, RACI, catalog links
+  architecture:
+    label: Runtime & architecture
+    weight: 0.15
+    p0: true
+    score_5: New team can draw the system, deps, data flows, failure modes
+  operate:
+    label: Operate / incidents
+    weight: 0.20
+    p0: true
+    score_5: Runbooks, alerts, dashboards, incidents replayable by new team
+  security:
+    label: Security & compliance
+    weight: 0.15
+    p0: true
+    score_5: Secrets, authz, TLS, data classes, known CVEs, access reviewed
+  release:
+    label: Change / release
+    weight: 0.10
+    p0: true
+    score_5: Build, deploy, rollback, who can ship to prod
+  data:
+    label: Data & persistence
+    weight: 0.10
+    p0: true
+    score_5: Schema, backups, restore drill, migrations, retention
+  product:
+    label: Product / contracts
+    weight: 0.08
+    p0: false
+    score_5: APIs, clients, SLAs, known limitations, customer impact
+  knowledge:
+    label: Knowledge & code
+    weight: 0.07
+    p0: false
+    score_5: Docs current, why captured, bus-factor ≥ 2 on hot paths
+  testing:
+    label: E2E / test automation
+    weight: 0.08
+    p0: true
+    score_5: Named E2E suite in GitHub Actions, recent runs green
+
+# Exit pillars are weighted by risk, not evenly. Override per service with
+# handover.yaml in the repo, or catalog annotation
+# handover.celonis.dev/weights: "shadow=30,docs=25,observe=25,debt=20".
+pillars:
+  shadow: 30
+  docs: 25
+  observe: 25
+  debt: 20
+
+checks:
+  # --- Ownership ---
+  - id: ownership.catalog
+    area: ownership
+    weight: 3
+    any_files:
+      - catalog-info.yaml
+      - catalog-info.yml
+      - backstage.yaml
+    evidence: Backstage / service catalog file
+    escalate_if_missing: Catalog the service before handover; ownership is undefined in the platform.
+
+  - id: ownership.codeowners
+    area: ownership
+    weight: 2
+    any_files:
+      - CODEOWNERS
+      - .github/CODEOWNERS
+      - OWNERS
+      - docs/CODEOWNERS
+    evidence: CODEOWNERS or OWNERS file
+    escalate_if_missing: No review owners; PRs and incidents have no named team.
+
+  - id: ownership.oncall_links
+    area: ownership
+    weight: 3
+    content_any:
+      patterns:
+        - opsgenie
+        - pagerduty
+        - on-call
+        - oncall
+        - incident.io
+      glob: "{catalog-info.yaml,catalog-info.yml,README.md,docs/**/*.md,.github/**/*}"
+    evidence: On-call tool linked (OpsGenie / PagerDuty / similar)
+    escalate_if_missing: No on-call route in-repo; pages will not reach the new team.
+
+  - id: ownership.chat_tracker
+    area: ownership
+    weight: 1
+    content_any:
+      patterns:
+        - slack.com
+        - atlassian.net/jira
+        - linear.app
+      glob: "{catalog-info.yaml,catalog-info.yml,README.md,docs/**/*.md}"
+    evidence: Slack and/or issue tracker linked
+
+  # --- Architecture ---
+  - id: architecture.docs
+    area: architecture
+    weight: 3
+    any_files:
+      - docs/architecture/**/*.md
+      - docs/architecture.md
+      - architecture.md
+      - docs/design/**/*.md
+      - ADR*.md
+      - docs/**/adr*.md
+      - docs/architecture/records/**/*.md
+    evidence: Architecture or ADR docs
+    escalate_if_missing: System design lives in people's heads; MTTR rises when they leave.
+
+  - id: architecture.diagrams
+    area: architecture
+    weight: 2
+    any_of:
+      - files:
+          - docs/**/*.png
+          - docs/**/*.svg
+          - docs/**/*.mmd
+      - content_any:
+          patterns:
+            - "```mermaid"
+            - "flowchart "
+            - "erDiagram"
+            - "C4Context"
+          glob: "docs/**/*.md"
+    evidence: Architecture diagrams (Mermaid or image)
+
+  - id: architecture.dependencies
+    area: architecture
+    weight: 2
+    any_of:
+      - files:
+          - docs/dependencies.md
+      - content_any:
+          patterns:
+            - "dependsOn:"
+            - "runtime dependencies"
+            - "depends on"
+          glob: "{catalog-info.yaml,catalog-info.yml,docs/**/*.md,README.md}"
+    evidence: Runtime dependencies documented
+
+  # --- Operate ---
+  - id: operate.runbooks
+    area: operate
+    weight: 4
+    any_files:
+      - docs/runbooks/**/*.md
+      - runbooks/**/*.md
+      - docs/ops/**/*.md
+      - docs/on-call/**/*.md
+    evidence: Runbooks / ops / on-call docs
+    note: Existence only. Quality (stubs vs 5-minute recoveries) is scored separately and blended into Operate.
+    escalate_if_missing: New team cannot recover a Sev-1 from documentation.
+
+  - id: operate.monitor_remediation
+    area: operate
+    weight: 2
+    content_any:
+      patterns:
+        - rollback
+        - "ArgoCD"
+        - argocd
+        - Datadog
+        - "how to resolve"
+        - remediation
+      glob: "{docs/runbooks/**/*.md,docs/ops/**/*.md,runbooks/**/*.md}"
+    evidence: Remediation / rollback steps inside runbooks
+
+  - id: operate.runbook_todos
+    area: operate
+    weight: 1
+    invert: true
+    content_any:
+      patterns:
+        - "TODO:"
+        - "FIXME:"
+        - "add content"
+        - "keep this section?"
+      glob: "{docs/runbooks/**/*.md,docs/ops/**/*.md}"
+    evidence: Runbooks free of TODO/FIXME stubs
+    note: Unfinished runbooks look complete in a file tree but fail during an incident.
+
+  # --- Security ---
+  - id: security.doc
+    area: security
+    weight: 2
+    any_files:
+      - SECURITY.md
+      - docs/security/**/*.md
+      - docs/ops/**encrypt*.md
+      - docs/**/*threat*
+    evidence: Security, encryption, or threat-model docs
+    escalate_if_missing: No security pack for operators; secrets and authz will be tribal knowledge.
+
+  - id: security.authz
+    area: security
+    weight: 3
+    content_any:
+      patterns:
+        - permission
+        - authoriz
+        - oauth
+        - oidc
+        - rbac
+        - "access control"
+      glob: "{docs/**/*.md,README.md,**/*Permission*.java,**/*Auth*.java,**/*security*.yml,**/*security*.yaml}"
+    evidence: AuthN/AuthZ discussed in docs or code
+    escalate_if_missing: Authorization model not findable; wrong-access risk on a production service.
+
+  - id: security.secrets_hygiene
+    area: security
+    weight: 2
+    invert: true
+    content_any:
+      patterns:
+        - "token=[A-Za-z0-9_-]{20,}"
+        - "BEGIN (RSA |OPENSSH |EC )?PRIVATE KEY"
+        - "AKIA[0-9A-Z]{16}"
+      glob: "{README.md,*.md,*.yml,*.yaml,*.env,*.properties}"
+    evidence: No secrets or long tokens committed in docs/config
+    escalate_if_missing: Possible secret in repo; rotate before handover.
+
+  # --- Release ---
+  - id: release.ci
+    area: release
+    weight: 3
+    any_files:
+      - .github/workflows/*.{yml,yaml}
+      - .gitlab-ci.yml
+      - Jenkinsfile
+      - azure-pipelines.yml
+      - bitbucket-pipelines.yml
+    evidence: CI workflows present
+
+  - id: release.docs
+    area: release
+    weight: 3
+    any_files:
+      - docs/contributing/release/**/*.md
+      - docs/release*.md
+      - RELEASE.md
+      - docs/guides/release*.md
+    evidence: Release / hotfix documentation
+    escalate_if_missing: New team cannot ship or hotfix without the old team.
+
+  - id: release.rollback
+    area: release
+    weight: 2
+    content_any:
+      patterns:
+        - rollback
+        - "roll back"
+        - revert
+      glob: "{docs/**/*.md,README.md,.github/**/*.md}"
+    evidence: Rollback procedure documented
+
+  - id: release.container
+    area: release
+    weight: 1
+    any_files:
+      - Dockerfile
+      - Dockerfile.*
+      - docker-compose*.yml
+      - docker-compose*.yaml
+      - charts/**/*
+      - helm/**/*
+    evidence: Container or helm packaging
+
+  # --- Data ---
+  - id: data.migrations
+    area: data
+    weight: 3
+    any_files:
+      - "**/db/migration/**/*.sql"
+      - "**/db/changelog/**/*"
+      - "**/liquibase/**/*"
+      - "**/flyway/**/*"
+      - "**/migrations/**/*.sql"
+      - "**/alembic/versions/*.py"
+    evidence: Schema migrations (Flyway / Liquibase / SQL / Alembic)
+
+  - id: data.known_issues
+    area: data
+    weight: 1
+    any_files:
+      - docs/known-issues/**/*.md
+      - docs/known-issues.md
+      - KNOWN_ISSUES.md
+    evidence: Known-issues list
+
+  - id: data.backup_restore
+    area: data
+    weight: 3
+    content_any:
+      patterns:
+        - restore
+        - backup
+        - point-in-time
+        - "disaster recovery"
+      glob: "{docs/**/*.md,README.md,runbooks/**/*.md}"
+    evidence: Backup / restore mentioned in docs
+    escalate_if_missing: Restore never documented; data-loss incidents will stall.
+
+  # --- Product ---
+  - id: product.api
+    area: product
+    weight: 3
+    any_of:
+      - files:
+          - "**/openapi*.json"
+          - "**/openapi*.yaml"
+          - "**/openapi*.yml"
+          - "**/swagger*.json"
+          - api.md
+          - docs/api/**/*.md
+      - content_any:
+          patterns:
+            - "providesApis:"
+            - "openapi"
+            - "OpenAPI"
+          glob: "{catalog-info.yaml,catalog-info.yml,docs/**/*.md,README.md}"
+    evidence: API contract (OpenAPI / catalog APIs)
+
+  - id: product.slo
+    area: product
+    weight: 2
+    content_any:
+      patterns:
+        - SLO
+        - "error budget"
+        - "availability"
+        - IntentSlo
+      glob: "{docs/**/*.md,catalog-info.yaml,README.md}"
+    evidence: SLO / error-budget / availability targets
+
+  - id: product.feature_flags
+    area: product
+    weight: 1
+    any_of:
+      - files:
+          - docs/feature-flags/**/*.md
+          - docs/feature-flags.md
+      - content_any:
+          patterns:
+            - feature flag
+            - feature-flag
+            - Feature Toggle
+          glob: "docs/**/*.md"
+    evidence: Feature flags documented
+
+  # --- Knowledge ---
+  - id: knowledge.readme
+    area: knowledge
+    weight: 2
+    min_bytes: 400
+    any_files:
+      - README.md
+      - README.rst
+      - README.org
+    evidence: README with real content (not just a link)
+
+  - id: knowledge.local_setup
+    area: knowledge
+    weight: 3
+    any_files:
+      - docs/contributing/setup/**/*.md
+      - docs/how-to/run-locally.md
+      - docs/setup.md
+      - CONTRIBUTING.md
+      - docs/contributing/**/*.md
+    evidence: Local / contributor setup docs
+    escalate_if_missing: New engineers cannot get a laptop working without the old team.
+
+  - id: knowledge.tests
+    area: knowledge
+    weight: 2
+    any_files:
+      - "**/src/test/**/*"
+      - "**/*_test.go"
+      - "**/*.spec.ts"
+      - "**/*.spec.js"
+      - "**/test_*.py"
+      - "**/*Tests.java"
+      - docs/testing/**/*.md
+    evidence: Automated tests or testing docs
+
+  - id: testing.e2e_workflow
+    area: testing
+    weight: 4
+    any_files:
+      - .github/workflows/*e2e*
+      - .github/*e2e*
+      - "**/*playwright*.{ts,js,yml,yaml,json}"
+      - "**/playwright.config.*"
+      - "**/cypress.config.*"
+      - "**/cypress/**/*"
+      - "**/*selenium*"
+      - docs/e2e/**/*.md
+      - docs/testing/e2e/**/*.md
+    evidence: E2E / UI automation workflow or suite
+    escalate_if_missing: No E2E workflow in git. Incoming cannot see how production paths are verified.
+
+  - id: testing.ci_tests
+    area: testing
+    weight: 2
+    content_any:
+      patterns:
+        - e2e
+        - playwright
+        - cypress
+        - selenium
+        - test automation
+      glob: ".github/workflows/*.{yml,yaml}"
+    evidence: CI workflow mentions E2E or browser automation
+
+  - id: knowledge.env_docs
+    area: knowledge
+    weight: 2
+    any_of:
+      - files:
+          - .env.example
+          - .env.sample
+          - docs/environment.md
+          - docs/env.md
+      - content_any:
+          patterns:
+            - environment variable
+            - "env var"
+            - "ENV_VAR"
+            - ".env"
+          glob: "{README.md,docs/**/*.md,CONTRIBUTING.md}"
+    evidence: Environment variable docs or .env.example
+
+  - id: knowledge.deps
+    area: knowledge
+    weight: 1
+    any_files:
+      - .github/dependabot.yml
+      - .github/dependabot.yaml
+      - renovate.json
+      - renovate.json5
+      - .snyk
+    evidence: Active dependency management (Dependabot / Renovate / Snyk)
+
+  - id: knowledge.kt
+    area: knowledge
+    weight: 1
+    content_any:
+      patterns:
+        - knowledge transfer
+        - walkthrough
+        - loom.com
+        - recorded
+        - KT session
+      glob: "{README.md,docs/**/*.md}"
+    evidence: KT / recorded walkthrough linked
+
+  - id: operate.dashboards
+    area: operate
+    weight: 2
+    content_any:
+      patterns:
+        - dashboard
+        - golden signal
+        - latency
+        - "error rate"
+        - saturation
+        - grafana
+        - datadoghq.com/dashboard
+      glob: "{README.md,docs/**/*.md,catalog-info.yaml,catalog-info.yml}"
+    evidence: Health dashboards (latency / errors / saturation) linked
+
+  - id: operate.tracing
+    area: operate
+    weight: 1
+    content_any:
+      patterns:
+        - opentelemetry
+        - tracing
+        - jaeger
+        - zipkin
+        - distributed tracing
+      glob: "{README.md,docs/**/*.md,**/*.{yml,yaml,java,ts,py,go}}"
+    evidence: Logging / distributed tracing mentioned
+
+  - id: security.secrets_store
+    area: security
+    weight: 2
+    content_any:
+      patterns:
+        - vault
+        - secrets manager
+        - sealed-secrets
+        - sops
+        - "AWS Secrets"
+      glob: "{README.md,docs/**/*.md,catalog-info.yaml,**/*.{yml,yaml}}"
+    evidence: Secret store (Vault / Secrets Manager) documented
+
+  - id: security.vendors
+    area: security
+    weight: 1
+    content_any:
+      patterns:
+        - third-party
+        - vendor
+        - license
+        - API key rotation
+      glob: "{README.md,docs/**/*.md,NOTICE,LICENSE*}"
+    evidence: Vendors / licenses / key ownership documented
+
+  - id: security.vuln_backlog
+    area: security
+    weight: 2
+    any_of:
+      - files:
+          - docs/security/**/*.md
+          - SECURITY.md
+      - content_any:
+          patterns:
+            - CVE
+            - vulnerab
+            - dependabot
+            - snyk
+            - technical debt
+          glob: "{README.md,docs/**/*.md,SECURITY.md,.github/**/*.md}"
+    evidence: Vulnerabilities / tech debt tracked in docs or SECURITY.md

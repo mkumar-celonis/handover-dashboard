@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Handover readiness</title>
+  <link rel="stylesheet" href="/assets/styles.css?v=21" />
+</head>
+<body>
+  <header class="top">
+    <h1>Handover readiness</h1>
+    <p class="meta">Load a Roadie group, pick services and weights, then submit to fetch each scorecard.</p>
+  </header>
+
+  <form id="scan-form" class="scan" method="post" action="#">
+    <div class="row">
+      <input id="path" name="path" type="text" spellcheck="false" autocomplete="off"
+        placeholder="Repo path or Roadie group URL" />
+      <select id="window-days" name="window_days" aria-label="Time window">
+        <option value="7">Last 1 week</option>
+        <option value="14">Last 2 weeks</option>
+        <option value="30">Last 1 month</option>
+        <option value="90" selected>Last 3 months</option>
+        <option value="180">Last 6 months</option>
+        <option value="365">Last 12 months</option>
+      </select>
+      <button type="submit" id="scan-btn">Scan</button>
+    </div>
+    <p class="hints">
+      <button type="button" class="linkish" data-path="https://celonis.roadie.so/catalog/default/group/task-mining">task-mining group</button>
+      <button type="button" class="linkish" data-path="/Users/m.kumar/celonis/task-mining/cloud-task-mining">cloud-task-mining</button>
+      <button type="button" class="linkish" data-path="/Users/m.kumar/celonis/task-mining/task-mining-gateway">task-mining-gateway</button>
+    </p>
+  </form>
+
+  <p id="error" class="error" hidden></p>
+  <p id="loading" class="loading" hidden>Scanning…</p>
+
+  <details class="criteria-panel" id="criteria-panel">
+    <summary>
+      <strong>Criteria &amp; scoring</strong>
+      <span class="meta">Go / soft / block — what the score means for ownership</span>
+    </summary>
+    <div id="criteria-body" class="criteria-body">
+      <p class="meta">Loading the finalised list…</p>
+    </div>
+  </details>
+
+  <main id="report" hidden></main>
+
+  <script src="/assets/app.js?v=21"></script>
+</body>
+</html>
